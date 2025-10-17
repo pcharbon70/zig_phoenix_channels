@@ -1,0 +1,23 @@
+.{
+    .name = .phoenix_channels,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.15.0",
+    .fingerprint = 0x43464205075461bf,
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tests",
+        "examples",
+        "README.md",
+    },
+
+    .dependencies = .{
+        .websocket = .{
+            // Commit: 43ce3ff21c5979ef5c0fa11b1f778705c35f47eb (latest as of 2025-10-17)
+            .url = "https://github.com/karlseguin/websocket.zig/archive/43ce3ff21c5979ef5c0fa11b1f778705c35f47eb.tar.gz",
+            .hash = "websocket-0.1.0-ZPISdRJzAwAnbleES-QZyp0DlQzbzYVAb2FxwWT4p38K",
+        },
+    },
+}
