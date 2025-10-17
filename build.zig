@@ -6,16 +6,34 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // ===================================================================
+    // Dependencies
+    // ===================================================================
+    // Import websocket dependency from build.zig.zon
+    const websocket_dep = b.dependency("websocket", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const websocket_mod = websocket_dep.module("websocket");
+
+    // ===================================================================
+    // Library Module
+    // ===================================================================
+    // Create a shared module for the library code that can be used by
+    // both the library artifact and tests
+    const phoenix_mod = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    phoenix_mod.addImport("websocket", websocket_mod);
+
+    // ===================================================================
     // Library Target
     // ===================================================================
     const lib = b.addLibrary(.{
         .name = "phoenix_channels",
         .linkage = .static,
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/root.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
+        .root_module = phoenix_mod,
     });
 
     // Install the library artifact to zig-out/lib/
@@ -32,6 +50,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    // Add modules to unit tests
+    unit_tests.root_module.addImport("websocket", websocket_mod);
+    unit_tests.root_module.addImport("phoenix_channels", phoenix_mod);
+
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
     // ===================================================================
@@ -44,6 +66,10 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+
+    // Add modules to integration tests
+    integration_tests.root_module.addImport("websocket", websocket_mod);
+    integration_tests.root_module.addImport("phoenix_channels", phoenix_mod);
 
     const run_integration_tests = b.addRunArtifact(integration_tests);
 
@@ -76,8 +102,9 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Link example against the library
+    // Link example against the library and websocket
     example.root_module.addImport("phoenix_channels", lib.root_module);
+    example.root_module.addImport("websocket", websocket_mod);
 
     // Install the example to zig-out/bin/
     b.installArtifact(example);
