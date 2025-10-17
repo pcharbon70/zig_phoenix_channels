@@ -82,13 +82,13 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_unit_tests.step);
     test_step.dependOn(&run_integration_tests.step);
 
-    // Separate integration test step for selective execution
-    const integration_step = b.step("test-integration", "Run integration tests only");
-    integration_step.dependOn(&run_integration_tests.step);
-
     // Separate unit test step for selective execution
     const unit_step = b.step("test-unit", "Run unit tests only");
     unit_step.dependOn(&run_unit_tests.step);
+
+    // Separate integration test step for selective execution
+    const integration_step = b.step("test-integration", "Run integration tests only");
+    integration_step.dependOn(&run_integration_tests.step);
 
     // ===================================================================
     // Example Executable
