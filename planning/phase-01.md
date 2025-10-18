@@ -83,14 +83,39 @@ A well-organized directory structure makes the codebase navigable and maintainab
 - Tests pass: 20+ tests covering module accessibility, re-exports, state transitions
 - Library builds successfully: `libphoenix_channels.a` (17KB)
 
-### 1.1.4 Core Type Definitions
+### 1.1.4 Core Type Definitions ✅ COMPLETED
 
 Defining core types early establishes the vocabulary used throughout the library. These types should be carefully designed as changing them later is costly. We prioritize clarity and type safety, using Zig's type system to prevent errors at compile time.
 
-- 1.1.4.1 Define core error sets for different error categories
-- 1.1.4.2 Create common types (Allocator wrappers, callbacks)
-- 1.1.4.3 Define configuration structs for Socket and Channel options
-- 1.1.4.4 Create reference counter type for generating unique message refs
+- ✅ 1.1.4.1 Define core error sets for different error categories
+- ✅ 1.1.4.2 Create common types (Allocator wrappers, callbacks)
+- ✅ 1.1.4.3 Define configuration structs for Socket and Channel options
+- ✅ 1.1.4.4 Create reference counter type for generating unique message refs
+
+**Implementation Details:**
+- All requirements were implemented as part of Task 1.1.3 (Project Structure) in the common layer
+- **Error sets** (`src/common/errors.zig`): Comprehensive error hierarchies
+  - ConnectionError: Connection lifecycle errors (8 variants)
+  - ProtocolError: Message format and protocol errors (5 variants)
+  - ChannelError: Channel operation errors (6 variants)
+  - PhoenixError: General library errors (4 variants)
+  - Combined Error type including all above plus Allocator.Error
+- **Common types** (`src/common/types.zig`):
+  - Allocator type alias for std.mem.Allocator
+  - EventCallback function pointer type for event handlers
+  - StateChangeCallback function pointer type for state notifications
+- **RefCounter** (`src/common/types.zig`): Thread-safe reference counter
+  - Uses std.Thread.Mutex for concurrent access protection
+  - Implements wrapping arithmetic for overflow handling
+  - Provides init(), next(), and reset() methods
+  - Tested for uniqueness and thread safety
+- **Configuration** (`src/common/config.zig`): PhoenixConfig struct
+  - 8 configuration fields with sensible Phoenix.js-compatible defaults
+  - Covers timeouts, heartbeat, reconnection strategy, message size limits
+  - Helper function defaultConfig() for easy initialization
+- All types fully integrated via src/root.zig common layer exports
+- Comprehensive unit tests: 4 tests in module files, 4 integration tests in tests/unit_tests.zig
+- All tests passing, library builds successfully
 
 ### Unit Tests - Section 1.1
 
