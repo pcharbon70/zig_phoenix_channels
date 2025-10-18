@@ -56,6 +56,21 @@ pub fn build(b: *std.Build) void {
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
+    // Project setup and dependencies tests
+    const project_setup_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/project_setup_tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    // Add modules to project setup tests
+    project_setup_tests.root_module.addImport("websocket", websocket_mod);
+    project_setup_tests.root_module.addImport("phoenix_channels", phoenix_mod);
+
+    const run_project_setup_tests = b.addRunArtifact(project_setup_tests);
+
     // ===================================================================
     // Integration Tests
     // ===================================================================
@@ -77,14 +92,19 @@ pub fn build(b: *std.Build) void {
     // Test Steps
     // ===================================================================
 
-    // Main test step runs both unit and integration tests
-    const test_step = b.step("test", "Run all tests (unit + integration)");
+    // Main test step runs all tests
+    const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_project_setup_tests.step);
     test_step.dependOn(&run_integration_tests.step);
 
     // Separate unit test step for selective execution
     const unit_step = b.step("test-unit", "Run unit tests only");
     unit_step.dependOn(&run_unit_tests.step);
+
+    // Project setup tests step for selective execution
+    const project_setup_step = b.step("test-setup", "Run project setup tests only");
+    project_setup_step.dependOn(&run_project_setup_tests.step);
 
     // Separate integration test step for selective execution
     const integration_step = b.step("test-integration", "Run integration tests only");
