@@ -184,15 +184,40 @@ Serialization converts PhoenixMessage structs to JSON array format for transmiss
 - 1.2.2.3 Ensure payload serialization preserves JSON structure
 - 1.2.2.4 Add buffer management for serialized output
 
-### 1.2.3 JSON Deserialization
+### 1.2.3 JSON Deserialization ✅ COMPLETED
 
 Deserialization parses incoming JSON arrays into PhoenixMessage structs. This is more complex than serialization because we must validate the structure, handle malformed messages gracefully, and manage memory for string fields. We use arena allocation for temporary parsing structures.
 
-- 1.2.3.1 Implement fromArray() method for parsing JSON arrays
-- 1.2.3.2 Validate array has exactly 5 elements
-- 1.2.3.3 Parse each field with appropriate type checking
-- 1.2.3.4 Handle malformed messages with descriptive errors
-- 1.2.3.5 Implement memory management for parsed strings
+- ✅ 1.2.3.1 Implement fromArray() method (deserialize) for parsing JSON arrays
+- ✅ 1.2.3.2 Validate array has exactly 5 elements
+- ✅ 1.2.3.3 Parse each field with appropriate type checking
+- ✅ 1.2.3.4 Handle malformed messages with descriptive errors
+- ✅ 1.2.3.5 Implement memory management for parsed strings
+
+**Implementation Details:**
+- Implemented `deserialize()` function in `src/protocol/serializer.zig` (+259 lines, 293 total)
+- **Parsing Strategy**: Parse with std.json.parseFromSlice, validate, extract with type checking
+  - Validates array structure and length (exactly 5 elements)
+  - Type checks each field before extraction
+  - Returns error.InvalidMessage for malformed input
+- **Field Validation**: Explicit type checking for all fields
+  - join_ref, ref: null or string (flexible)
+  - topic, event: string required (rejects null)
+  - payload: object required (rejects primitives/arrays)
+- **Memory Management**: Complete ownership model with deep copying
+  - All strings duplicated (owned by message)
+  - Payload deep-copied recursively (owned by message)
+  - Proper errdefer cleanup on all error paths
+  - `deinitOwned()` function for complete cleanup
+- **Helper Functions**:
+  - `deepCopyValue()` - Recursive deep copy for JSON values
+  - `freeValue()` - Recursive cleanup for JSON values
+  - `deinitOwned()` - Public API for freeing deserialized messages
+- **Test Coverage**: 10 comprehensive tests (135 lines)
+  - 5 success cases: basic, join, heartbeat, payload data, nested structures
+  - 5 error cases: wrong length, non-array, missing topic/event, non-object payload
+- All 40 tests passing (30 existing + 10 new deserialization tests)
+- Phoenix V2 protocol compliant, handles all validation requirements
 
 ### 1.2.4 Message Validation
 
