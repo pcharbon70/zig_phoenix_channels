@@ -175,14 +175,30 @@ The PhoenixMessage struct is the central data structure for all protocol operati
 - All tests passing (30 total: 11 unit + 18 setup + 1 integration)
 - Phoenix V2 protocol compliant: supports all system events and custom events
 
-### 1.2.2 JSON Serialization
+### 1.2.2 JSON Serialization ✅ COMPLETED
 
 Serialization converts PhoenixMessage structs to JSON array format for transmission. This must produce the exact 5-element array format Phoenix expects: [join_ref, ref, topic, event, payload]. We use std.json.stringify but need careful handling of nullable fields and nested JSON structures.
 
-- 1.2.2.1 Implement toArray() method for converting to JSON array format
-- 1.2.2.2 Handle nullable field serialization (null vs absent)
-- 1.2.2.3 Ensure payload serialization preserves JSON structure
-- 1.2.2.4 Add buffer management for serialized output
+- ✅ 1.2.2.1 Implement toArray() method (serialize) for converting to JSON array format
+- ✅ 1.2.2.2 Handle nullable field serialization (null vs absent)
+- ✅ 1.2.2.3 Ensure payload serialization preserves JSON structure
+- ✅ 1.2.2.4 Add buffer management for serialized output
+
+**Implementation Details:**
+- Implemented `serialize()` function in `src/protocol/serializer.zig` (+232 lines, 267 total)
+- **Serialization Approach**: Single-pass write to ArrayList buffer
+  - Uses std.json.encodeJsonString for topic and event (proper escaping)
+  - Uses std.json.stringify for payload (preserves structure)
+  - Direct writer usage for efficiency
+- **Nullable Field Handling**: Writes literal `null` for absent join_ref/ref (Phoenix protocol compliant)
+- **Buffer Management**: Dynamic ArrayList with errdefer cleanup, returns owned slice
+- **Payload Preservation**: Handles nested objects, mixed types, special characters
+- **Test Coverage**: 7 comprehensive tests (227 lines)
+  - Basic messages, join/leave/heartbeat messages
+  - Payload with data, nested structures
+  - Special character escaping, empty payloads
+- All 37 tests passing (30 existing + 7 new serialization tests)
+- Phoenix V2 protocol compliant, Phoenix.js compatible output format
 
 ### 1.2.3 JSON Deserialization
 
