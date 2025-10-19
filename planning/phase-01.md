@@ -219,14 +219,42 @@ Deserialization parses incoming JSON arrays into PhoenixMessage structs. This is
 - All 40 tests passing (30 existing + 10 new deserialization tests)
 - Phoenix V2 protocol compliant, handles all validation requirements
 
-### 1.2.4 Message Validation
+### 1.2.4 Message Validation ✅ COMPLETED
 
 Not all syntactically valid messages are semantically correct. We need validation logic to catch protocol violations early. For example, phx_join must have join_ref, regular messages should not, payload must be an object. Validation prevents propagating invalid state.
 
-- 1.2.4.1 Implement validation for required fields per message type
-- 1.2.4.2 Validate topic format and reserved topics ("phoenix")
-- 1.2.4.3 Ensure payload is always a JSON object (not primitive)
-- 1.2.4.4 Add validation for system event names (phx_join, etc.)
+- ✅ 1.2.4.1 Implement validation for required fields per message type
+- ✅ 1.2.4.2 Validate topic format and reserved topics ("phoenix")
+- ✅ 1.2.4.3 Ensure payload is always a JSON object (not primitive)
+- ✅ 1.2.4.4 Add validation for system event names (phx_join, etc.)
+
+**Implementation Details:**
+- Implemented three validation methods in `src/protocol/message.zig` (+235 lines, 571 total)
+- **Validation Methods**:
+  - `validate()` - General validation for all messages (23 lines)
+    - Payload must be JSON object
+    - phx_join requires join_ref
+    - Topic and event not empty
+  - `validateForSend()` - Client-to-server validation (15 lines)
+    - Calls validate() for base rules
+    - Non-heartbeat messages require ref
+    - Heartbeat must use "phoenix" topic
+  - `validateFromServer()` - Server-to-client validation (10 lines)
+    - Calls validate() for base rules
+    - phx_reply requires ref for matching
+- **Validation Rules**:
+  - Universal: payload is object, topic/event not empty, phx_join has join_ref
+  - Client: non-heartbeat messages have ref, heartbeat uses "phoenix" topic
+  - Server: phx_reply messages have ref
+- **Error Handling**: Returns error.ValidationError (from existing ProtocolError set)
+  - Fast-fail approach (stops at first violation)
+  - Const methods (no mutation during validation)
+  - Optional validation (caller decides when to validate)
+- **Test Coverage**: 10 comprehensive tests (187 lines)
+  - 3 success cases: valid join, valid heartbeat, valid reply
+  - 7 failure cases: join without join_ref, non-object payload, empty topic/event, missing ref, wrong topic, reply without ref
+- All 50 tests passing (30 existing + 10 new + 10 validation tests)
+- Phoenix V2 protocol compliant with semantic validation enforced
 
 ### Unit Tests - Section 1.2
 

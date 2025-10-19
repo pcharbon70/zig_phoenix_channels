@@ -173,6 +173,69 @@ pub const PhoenixMessage = struct {
     pub fn isReply(self: *const PhoenixMessage) bool {
         return std.mem.eql(u8, self.event, constants.SystemEvents.REPLY);
     }
+
+    // ========================================================================
+    // Validation Methods
+    // ========================================================================
+
+    /// Validate message conforms to Phoenix protocol requirements
+    /// Returns error if message violates protocol rules
+    pub fn validate(self: *const PhoenixMessage) !void {
+        // Validate payload is always an object
+        if (self.payload != .object) {
+            return error.ValidationError;
+        }
+
+        // Validate phx_join messages require join_ref
+        if (self.isJoin()) {
+            if (self.join_ref == null) {
+                return error.ValidationError;
+            }
+        }
+
+        // Validate topic is not empty
+        if (self.topic.len == 0) {
+            return error.ValidationError;
+        }
+
+        // Validate event is not empty
+        if (self.event.len == 0) {
+            return error.ValidationError;
+        }
+    }
+
+    /// Validate message for sending (client-to-server)
+    /// More strict than general validation
+    pub fn validateForSend(self: *const PhoenixMessage) !void {
+        // Run general validation first
+        try self.validate();
+
+        // Outgoing messages should have a ref
+        if (self.ref == null and !self.isHeartbeat()) {
+            return error.ValidationError;
+        }
+
+        // Heartbeat messages must go to "phoenix" topic
+        if (self.isHeartbeat()) {
+            if (!std.mem.eql(u8, self.topic, constants.ReservedTopics.PHOENIX)) {
+                return error.ValidationError;
+            }
+        }
+    }
+
+    /// Validate message received from server
+    /// Allows server-specific patterns
+    pub fn validateFromServer(self: *const PhoenixMessage) !void {
+        // Run general validation
+        try self.validate();
+
+        // Reply messages should have ref for matching
+        if (self.isReply()) {
+            if (self.ref == null) {
+                return error.ValidationError;
+            }
+        }
+    }
 };
 
 // ============================================================================
@@ -330,4 +393,179 @@ test "PhoenixMessage system event detection" {
     try std.testing.expect(!custom_msg.isHeartbeat());
     try std.testing.expect(!custom_msg.isReply());
     try std.testing.expect(!custom_msg.isSystemEvent());
+}
+
+// ============================================================================
+// Validation Tests
+// ============================================================================
+
+test "validate: valid join message passes" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage.initJoin(allocator, "room:lobby", "1", payload);
+    try msg.validate();
+    try msg.validateForSend();
+}
+
+test "validate: join message without join_ref fails" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage{
+        .join_ref = null, // Missing join_ref for phx_join
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = constants.SystemEvents.JOIN,
+        .payload = payload,
+        .allocator = allocator,
+    };
+
+    const result = msg.validate();
+    try std.testing.expectError(error.ValidationError, result);
+}
+
+test "validate: message with non-object payload fails" {
+    const allocator = std.testing.allocator;
+
+    var msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = "test",
+        .payload = .{ .string = "not an object" },
+        .allocator = allocator,
+    };
+
+    const result = msg.validate();
+    try std.testing.expectError(error.ValidationError, result);
+}
+
+test "validate: message with empty topic fails" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "", // Empty topic
+        .event = "test",
+        .payload = payload,
+        .allocator = allocator,
+    };
+
+    const result = msg.validate();
+    try std.testing.expectError(error.ValidationError, result);
+}
+
+test "validate: message with empty event fails" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = "", // Empty event
+        .payload = payload,
+        .allocator = allocator,
+    };
+
+    const result = msg.validate();
+    try std.testing.expectError(error.ValidationError, result);
+}
+
+test "validateForSend: message without ref fails" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = null, // Missing ref
+        .topic = "room:lobby",
+        .event = "test",
+        .payload = payload,
+        .allocator = allocator,
+    };
+
+    const result = msg.validateForSend();
+    try std.testing.expectError(error.ValidationError, result);
+}
+
+test "validateForSend: heartbeat on wrong topic fails" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby", // Wrong topic for heartbeat
+        .event = constants.SystemEvents.HEARTBEAT,
+        .payload = payload,
+        .allocator = allocator,
+    };
+
+    const result = msg.validateForSend();
+    try std.testing.expectError(error.ValidationError, result);
+}
+
+test "validateForSend: valid heartbeat passes" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage.initHeartbeat(allocator, "1", payload);
+    try msg.validate();
+    try msg.validateForSend();
+}
+
+test "validateFromServer: reply without ref fails" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = null, // Missing ref for reply
+        .topic = "room:lobby",
+        .event = constants.SystemEvents.REPLY,
+        .payload = payload,
+        .allocator = allocator,
+    };
+
+    const result = msg.validateFromServer();
+    try std.testing.expectError(error.ValidationError, result);
+}
+
+test "validateFromServer: valid reply passes" {
+    const allocator = std.testing.allocator;
+
+    var payload = try PhoenixMessage.emptyPayload(allocator);
+    defer payload.object.deinit();
+
+    var msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = constants.SystemEvents.REPLY,
+        .payload = payload,
+        .allocator = allocator,
+    };
+
+    try msg.validate();
+    try msg.validateFromServer();
 }
