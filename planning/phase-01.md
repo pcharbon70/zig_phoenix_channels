@@ -146,14 +146,34 @@ This section implements the Phoenix V2 message format, which is the core protoco
 
 The message format is deceptively simple but has several subtleties: join_ref is required only for phx_join, ref should be unique per socket, topic has special meaning for "phoenix", and payload must always be a JSON object (never a primitive). Getting these details right requires careful implementation and thorough testing.
 
-### 1.2.1 Message Structure Definition
+### 1.2.1 Message Structure Definition ✅ COMPLETED
 
 The PhoenixMessage struct is the central data structure for all protocol operations. It must accurately represent the 5-field format while being ergonomic to work with in Zig. We need to handle nullable fields correctly (join_ref, ref) and ensure the payload field can represent arbitrary JSON structures.
 
-- 1.2.1.1 Define PhoenixMessage struct with 5 fields matching protocol spec
-- 1.2.1.2 Implement field types (nullable strings, JSON value for payload)
-- 1.2.1.3 Add convenience constructors for common message types
-- 1.2.1.4 Implement deinit() for proper memory cleanup
+- ✅ 1.2.1.1 Define PhoenixMessage struct with 5 fields matching protocol spec
+- ✅ 1.2.1.2 Implement field types (nullable strings, JSON value for payload)
+- ✅ 1.2.1.3 Add convenience constructors for common message types
+- ✅ 1.2.1.4 Implement deinit() for proper memory cleanup
+
+**Implementation Details:**
+- Enhanced `src/protocol/message.zig` (334 lines, +250 lines from baseline)
+- **Struct Definition**: 5 fields (join_ref, ref, topic, event, payload, allocator)
+  - Nullable fields: `?[]const u8` for join_ref and ref
+  - Required fields: `[]const u8` for topic and event
+  - Payload: `std.json.Value` supporting arbitrary JSON
+- **Convenience Constructors** (5 total):
+  - `init()` - Generic message constructor
+  - `initJoin()` - Channel subscription (sets join_ref=ref, event="phx_join")
+  - `initLeave()` - Channel unsubscription (event="phx_leave")
+  - `initHeartbeat()` - Keepalive (topic="phoenix", event="heartbeat")
+  - `initEvent()` - Custom user events
+  - `emptyPayload()` - Helper for creating empty JSON object
+- **Memory Management**: deinit() with caller-owned payload pattern
+- **Message Detection Methods** (5 helpers):
+  - `isSystemEvent()`, `isJoin()`, `isLeave()`, `isHeartbeat()`, `isReply()`
+- **Test Coverage**: 8 comprehensive tests validating all constructors and detection methods
+- All tests passing (30 total: 11 unit + 18 setup + 1 integration)
+- Phoenix V2 protocol compliant: supports all system events and custom events
 
 ### 1.2.2 JSON Serialization
 
