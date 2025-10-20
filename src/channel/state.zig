@@ -50,6 +50,31 @@ pub const ChannelState = enum {
             .ERROR => "ERROR",
         };
     }
+
+    /// Check if channel is in joined state (can send/receive)
+    pub fn isJoined(self: ChannelState) bool {
+        return self == .JOINED;
+    }
+
+    /// Check if channel can send messages
+    pub fn canSend(self: ChannelState) bool {
+        return self == .JOINED;
+    }
+
+    /// Check if channel is in transitional state (joining/leaving)
+    pub fn isTransitional(self: ChannelState) bool {
+        return self == .JOINING or self == .LEAVING;
+    }
+
+    /// Check if channel is in error state
+    pub fn isError(self: ChannelState) bool {
+        return self == .ERROR;
+    }
+
+    /// Check if channel is closed
+    pub fn isClosed(self: ChannelState) bool {
+        return self == .CLOSED;
+    }
 };
 
 test "valid channel state transitions" {

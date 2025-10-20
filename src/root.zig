@@ -96,6 +96,8 @@ pub const channel = struct {
     pub const Channel = channel_mod.Channel;
     pub const ChannelConfig = channel_mod.Config;
     pub const ChannelState = state.ChannelState;
+    pub const EventCallback = channel_mod.EventCallback;
+    pub const ChannelStateCallback = channel_mod.ChannelStateCallback;
 };
 
 // ============================================================================
