@@ -19,10 +19,20 @@ const std = @import("std");
 const websocket = @import("websocket");
 const State = @import("state.zig");
 const types = @import("../common/types.zig");
+const message = @import("../protocol/message.zig");
+const serializer = @import("../protocol/serializer.zig");
 
 const ConnectionState = State.ConnectionState;
 const StateChangeCallback = State.StateChangeCallback;
 const RefCounter = types.RefCounter;
+const PhoenixMessage = message.PhoenixMessage;
+
+/// Callback for received messages (Phase 1 temporary API)
+/// Phase 3 will replace this with proper channel routing
+pub const MessageCallback = *const fn (
+    msg: *const PhoenixMessage,
+    ctx: ?*anyopaque,
+) void;
 
 /// Phoenix Socket configuration
 pub const Config = struct {
@@ -114,6 +124,19 @@ pub const PhoenixSocket = struct {
     /// Optional context for state change callback
     callback_context: ?*anyopaque,
 
+    /// Receive thread handle (null when not running)
+    receive_thread: ?std.Thread,
+
+    /// Atomic flag for signaling receive thread to stop
+    should_stop_receive: std.atomic.Value(bool),
+
+    /// Optional callback for handling received messages (Phase 1 only)
+    /// Phase 3 will replace this with proper channel routing
+    message_callback: ?MessageCallback,
+
+    /// Context for message callback
+    message_callback_context: ?*anyopaque,
+
     /// Initialize a new Phoenix socket
     pub fn init(allocator: std.mem.Allocator, config: Config) !*PhoenixSocket {
         const socket = try allocator.create(PhoenixSocket);
@@ -126,6 +149,10 @@ pub const PhoenixSocket = struct {
             .mutex = std.Thread.Mutex{},
             .state_callback = null,
             .callback_context = null,
+            .receive_thread = null,
+            .should_stop_receive = std.atomic.Value(bool).init(false),
+            .message_callback = null,
+            .message_callback_context = null,
         };
         return socket;
     }
@@ -189,6 +216,9 @@ pub const PhoenixSocket = struct {
         }
 
         try self.setState(.CONNECTED);
+
+        // Start receiving messages in background thread
+        try self.startReceiving();
     }
 
     /// Disconnect from the Phoenix server
@@ -208,6 +238,9 @@ pub const PhoenixSocket = struct {
 
         // Transition to CLOSING
         try self.setState(.CLOSING);
+
+        // Stop receive thread
+        self.stopReceiving();
 
         // Close WebSocket connection if exists
         {
@@ -278,6 +311,127 @@ pub const PhoenixSocket = struct {
 
         self.state_callback = callback;
         self.callback_context = context;
+    }
+
+    /// Set message callback for received messages (Phase 1 only)
+    /// Phase 3 will replace this with proper channel routing
+    pub fn setMessageCallback(
+        self: *PhoenixSocket,
+        callback: ?MessageCallback,
+        context: ?*anyopaque,
+    ) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        self.message_callback = callback;
+        self.message_callback_context = context;
+    }
+
+    /// Start receiving messages in a separate thread
+    /// Should be called after successful connection
+    fn startReceiving(self: *PhoenixSocket) !void {
+        // Signal thread to start
+        self.should_stop_receive.store(false, .release);
+
+        // Spawn receive thread
+        self.receive_thread = try std.Thread.spawn(.{}, receiveLoop, .{self});
+    }
+
+    /// Stop receiving messages and wait for thread to finish
+    /// Should be called during disconnect
+    fn stopReceiving(self: *PhoenixSocket) void {
+        // Signal thread to stop
+        self.should_stop_receive.store(true, .release);
+
+        // Wait for thread to finish
+        if (self.receive_thread) |thread| {
+            thread.join();
+            self.receive_thread = null;
+        }
+    }
+
+    /// Receive loop running in separate thread
+    fn receiveLoop(self: *PhoenixSocket) void {
+        while (!self.should_stop_receive.load(.acquire)) {
+            // Get WebSocket client (thread-safe)
+            const client = blk: {
+                self.mutex.lock();
+                defer self.mutex.unlock();
+
+                if (self.ws_client) |c| {
+                    break :blk c;
+                } else {
+                    // No client, exit loop
+                    return;
+                }
+            };
+
+            // Set read timeout to allow checking should_stop flag
+            client.readTimeout(10000) catch {
+                // Timeout error, continue to check should_stop
+                continue;
+            };
+
+            // Read message from WebSocket
+            const msg_opt = client.read() catch |err| {
+                // Handle read error
+                self.handleReadError(err);
+                return;
+            };
+
+            // Process message if received
+            if (msg_opt) |msg| {
+                defer client.done(msg);
+
+                // Only handle text frames (Phoenix uses JSON)
+                if (msg.type == .text) {
+                    self.processTextMessage(msg.data);
+                }
+            }
+            // null means timeout - loop continues to check should_stop
+        }
+    }
+
+    /// Process received text message
+    fn processTextMessage(self: *PhoenixSocket, data: []const u8) void {
+        // Deserialize message
+        const phoenix_msg = serializer.deserialize(self.allocator, data) catch |err| {
+            std.log.err("Failed to deserialize message: {}", .{err});
+            return;
+        };
+        defer phoenix_msg.deinit(self.allocator);
+
+        // Route message
+        self.routeMessage(&phoenix_msg);
+    }
+
+    /// Route received message to appropriate handler
+    fn routeMessage(self: *PhoenixSocket, msg: *const PhoenixMessage) void {
+        // Get message callback (thread-safe)
+        const callback_info = blk: {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            break :blk .{
+                .callback = self.message_callback,
+                .context = self.message_callback_context,
+            };
+        };
+
+        // Invoke callback if registered
+        if (callback_info.callback) |callback| {
+            callback(msg, callback_info.context);
+        }
+    }
+
+    /// Handle read error from WebSocket
+    fn handleReadError(self: *PhoenixSocket, err: anyerror) void {
+        std.log.err("WebSocket read error: {}", .{err});
+
+        // Transition to ERROR state
+        self.setState(.ERROR) catch |state_err| {
+            std.log.err("Failed to transition to ERROR state: {}", .{state_err});
+        };
     }
 };
 

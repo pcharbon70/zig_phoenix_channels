@@ -412,15 +412,34 @@ Message sending must check connection state before attempting to send. In CONNEC
 - 1.3.4.4 Implement thread-safe sending with mutex protection
 - 1.3.4.5 Add send timeout and retry logic (basic)
 
-### 1.3.5 Message Receiving
+### 1.3.5 Message Receiving ✅ COMPLETED
 
 The receive loop runs in a separate thread, continuously reading from the WebSocket. Received messages are deserialized and routed to appropriate handlers (heartbeat responses to Socket, others to Channels). The receive loop must handle errors gracefully and trigger reconnection on connection loss.
 
-- 1.3.5.1 Implement receive loop running in separate thread
-- 1.3.5.2 Add message deserialization and routing logic
-- 1.3.5.3 Handle receive errors and connection failures
-- 1.3.5.4 Implement graceful thread shutdown on disconnect
-- 1.3.5.5 Add receive timeout handling
+- ✅ 1.3.5.1 Implement receive loop running in separate thread
+- ✅ 1.3.5.2 Add message deserialization and routing logic
+- ✅ 1.3.5.3 Handle receive errors and connection failures
+- ✅ 1.3.5.4 Implement graceful thread shutdown on disconnect
+- ✅ 1.3.5.5 Add receive timeout handling
+
+**Implementation Details:**
+- Enhanced `src/connection/socket.zig` (+140 lines, 1002 total)
+- Added receive thread infrastructure (receive_thread field, should_stop_receive atomic flag)
+- Added MessageCallback type for Phase 1 message handling
+- Implemented startReceiving() to spawn background thread
+- Implemented receiveLoop() running continuously in separate thread
+- Message deserialization using existing deserializer.deserialize()
+- Basic message routing via MessageCallback (Phase 3 will add channel registry)
+- Error handling with transition to ERROR state on read failures
+- Graceful shutdown with atomic flag and thread join
+- Read timeout (10 seconds) allows responsive shutdown
+- Thread-safe access to WebSocket client with mutex
+- Integrated with connect() to start receiving automatically
+- Integrated with disconnect() to stop receiving gracefully
+- Phase 1 scope: basic callback routing (full channel routing in Phase 3)
+- Branch: `feature/message-receiving`
+- Commit: pending
+- Summary: `notes/summaries/message-receiving.md`
 
 ### 1.3.6 Reference Generation
 
