@@ -36,6 +36,58 @@ pub const Config = struct {
     heartbeat_interval_ms: u32 = 30000,
 };
 
+/// WebSocket URL components
+const UrlInfo = struct {
+    host: []const u8,
+    port: u16,
+    path: []const u8,
+    tls: bool,
+};
+
+/// Parse WebSocket URL into components
+/// Supports: ws://host:port/path and wss://host:port/path
+fn parseWebSocketUrl(url: []const u8) !UrlInfo {
+    var tls = false;
+    var rest: []const u8 = undefined;
+
+    // Parse protocol
+    if (std.mem.startsWith(u8, url, "wss://")) {
+        tls = true;
+        rest = url[6..];
+    } else if (std.mem.startsWith(u8, url, "ws://")) {
+        rest = url[5..];
+    } else {
+        return error.InvalidUrl;
+    }
+
+    // Find first slash (separates host:port from path)
+    const path_start = std.mem.indexOf(u8, rest, "/") orelse rest.len;
+    const host_port = rest[0..path_start];
+    const path = if (path_start < rest.len) rest[path_start..] else "/";
+
+    // Parse host and port
+    if (std.mem.indexOf(u8, host_port, ":")) |colon_pos| {
+        const host = host_port[0..colon_pos];
+        const port_str = host_port[colon_pos + 1 ..];
+        const port = std.fmt.parseInt(u16, port_str, 10) catch return error.InvalidUrl;
+        return UrlInfo{
+            .host = host,
+            .port = port,
+            .path = path,
+            .tls = tls,
+        };
+    } else {
+        // No port specified, use default
+        const default_port: u16 = if (tls) 443 else 80;
+        return UrlInfo{
+            .host = host_port,
+            .port = default_port,
+            .path = path,
+            .tls = tls,
+        };
+    }
+}
+
 /// Phoenix Socket managing WebSocket connection
 pub const PhoenixSocket = struct {
     /// Memory allocator for dynamic allocations
@@ -83,26 +135,96 @@ pub const PhoenixSocket = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        // TODO: Close WebSocket connection if open (Task 1.3.3)
+        // Close WebSocket connection if open
         if (self.ws_client) |client| {
-            _ = client; // Will implement cleanup in Task 1.3.3
+            client.close(.{}) catch {};
+            client.deinit();
+            self.allocator.destroy(client);
         }
 
         self.allocator.destroy(self);
     }
 
     /// Connect to the Phoenix server
+    /// Establishes WebSocket connection with configured URL and timeout
+    /// Transitions: DISCONNECTED -> CONNECTING -> CONNECTED (on success)
+    ///              DISCONNECTED -> CONNECTING -> ERROR (on failure)
     pub fn connect(self: *PhoenixSocket) !void {
-        _ = self;
-        // TODO: Implement in Task 1.3.3 (Connection Lifecycle)
-        return error.NotImplemented;
+        // Validate current state
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.state != .DISCONNECTED) {
+                return error.InvalidState;
+            }
+        }
+
+        // Transition to CONNECTING
+        try self.setState(.CONNECTING);
+        errdefer self.setState(.ERROR) catch {};
+
+        // Parse WebSocket URL
+        const url_info = try parseWebSocketUrl(self.config.url);
+
+        // Create WebSocket client
+        var ws_client = try websocket.Client.init(self.allocator, .{
+            .host = url_info.host,
+            .port = url_info.port,
+            .tls = url_info.tls,
+        });
+        errdefer ws_client.deinit();
+
+        // Perform WebSocket handshake
+        try ws_client.handshake(url_info.path, .{
+            .timeout_ms = self.config.timeout_ms,
+        });
+
+        // Store WebSocket client and transition to CONNECTED
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+            self.ws_client = try self.allocator.create(websocket.Client);
+            self.ws_client.?.* = ws_client;
+        }
+
+        try self.setState(.CONNECTED);
     }
 
     /// Disconnect from the Phoenix server
+    /// Gracefully closes WebSocket connection
+    /// Transitions: CONNECTED -> CLOSING -> DISCONNECTED (on success)
+    ///              ERROR -> CLOSING -> DISCONNECTED (cleanup after error)
     pub fn disconnect(self: *PhoenixSocket) !void {
-        _ = self;
-        // TODO: Implement in Task 1.3.3 (Connection Lifecycle)
-        return error.NotImplemented;
+        // Validate current state
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.state != .CONNECTED and self.state != .ERROR) {
+                return error.InvalidState;
+            }
+        }
+
+        // Transition to CLOSING
+        try self.setState(.CLOSING);
+
+        // Close WebSocket connection if exists
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.ws_client) |client| {
+                // Send close frame and close connection
+                client.close(.{}) catch {};
+                client.deinit();
+                self.allocator.destroy(client);
+                self.ws_client = null;
+            }
+        }
+
+        // Transition to DISCONNECTED
+        try self.setState(.DISCONNECTED);
     }
 
     /// Get current connection state (thread-safe)
@@ -422,4 +544,122 @@ test "error state transitions" {
     try socket.setState(.ERROR);
     try socket.setState(.CONNECTING);
     try std.testing.expectEqual(ConnectionState.CONNECTING, socket.getState());
+}
+
+// ============================================================================
+// Connection Lifecycle Tests
+// ============================================================================
+
+test "URL parsing: ws with port and path" {
+    const url = "ws://localhost:4000/socket/websocket";
+    const info = try parseWebSocketUrl(url);
+
+    try std.testing.expectEqualStrings("localhost", info.host);
+    try std.testing.expectEqual(@as(u16, 4000), info.port);
+    try std.testing.expectEqualStrings("/socket/websocket", info.path);
+    try std.testing.expectEqual(false, info.tls);
+}
+
+test "URL parsing: wss with port and path" {
+    const url = "wss://example.com:443/socket";
+    const info = try parseWebSocketUrl(url);
+
+    try std.testing.expectEqualStrings("example.com", info.host);
+    try std.testing.expectEqual(@as(u16, 443), info.port);
+    try std.testing.expectEqualStrings("/socket", info.path);
+    try std.testing.expectEqual(true, info.tls);
+}
+
+test "URL parsing: ws without port" {
+    const url = "ws://localhost/socket";
+    const info = try parseWebSocketUrl(url);
+
+    try std.testing.expectEqualStrings("localhost", info.host);
+    try std.testing.expectEqual(@as(u16, 80), info.port);
+    try std.testing.expectEqualStrings("/socket", info.path);
+    try std.testing.expectEqual(false, info.tls);
+}
+
+test "URL parsing: wss without port" {
+    const url = "wss://example.com/socket";
+    const info = try parseWebSocketUrl(url);
+
+    try std.testing.expectEqualStrings("example.com", info.host);
+    try std.testing.expectEqual(@as(u16, 443), info.port);
+    try std.testing.expectEqualStrings("/socket", info.path);
+    try std.testing.expectEqual(true, info.tls);
+}
+
+test "URL parsing: without path" {
+    const url = "ws://localhost:8080";
+    const info = try parseWebSocketUrl(url);
+
+    try std.testing.expectEqualStrings("localhost", info.host);
+    try std.testing.expectEqual(@as(u16, 8080), info.port);
+    try std.testing.expectEqualStrings("/", info.path);
+    try std.testing.expectEqual(false, info.tls);
+}
+
+test "URL parsing: invalid protocol" {
+    const url = "http://localhost:4000/socket";
+    const result = parseWebSocketUrl(url);
+    try std.testing.expectError(error.InvalidUrl, result);
+}
+
+test "URL parsing: invalid port" {
+    const url = "ws://localhost:abc/socket";
+    const result = parseWebSocketUrl(url);
+    try std.testing.expectError(error.InvalidUrl, result);
+}
+
+test "connect: invalid state" {
+    const allocator = std.testing.allocator;
+
+    const config = Config{
+        .url = "ws://localhost:4000/socket/websocket",
+    };
+
+    const socket = try PhoenixSocket.init(allocator, config);
+    defer socket.deinit();
+
+    // Manually set state to CONNECTING
+    try socket.setState(.CONNECTING);
+
+    // Try to connect while already connecting
+    const result = socket.connect();
+    try std.testing.expectError(error.InvalidState, result);
+}
+
+test "disconnect: invalid state when DISCONNECTED" {
+    const allocator = std.testing.allocator;
+
+    const config = Config{
+        .url = "ws://localhost:4000/socket/websocket",
+    };
+
+    const socket = try PhoenixSocket.init(allocator, config);
+    defer socket.deinit();
+
+    // Try to disconnect while already disconnected
+    const result = socket.disconnect();
+    try std.testing.expectError(error.InvalidState, result);
+}
+
+test "disconnect: valid state when ERROR" {
+    const allocator = std.testing.allocator;
+
+    const config = Config{
+        .url = "ws://localhost:4000/socket/websocket",
+    };
+
+    const socket = try PhoenixSocket.init(allocator, config);
+    defer socket.deinit();
+
+    // Transition to ERROR state
+    try socket.setState(.CONNECTING);
+    try socket.setState(.ERROR);
+
+    // Should be able to disconnect from ERROR state
+    try socket.disconnect();
+    try std.testing.expectEqual(ConnectionState.DISCONNECTED, socket.getState());
 }
