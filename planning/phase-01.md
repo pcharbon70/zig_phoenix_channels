@@ -461,16 +461,38 @@ Each message needs a unique reference for matching replies. The ref counter must
 - No additional implementation needed
 - Summary: `notes/summaries/reference-generation.md`
 
-### Unit Tests - Section 1.3
+### Unit Tests - Section 1.3 ✅ COMPLETED
 
-- Test state machine transitions (valid and invalid)
-- Test connection establishment and disconnection
-- Test message sending in CONNECTED state
-- Test message sending errors in non-CONNECTED states
-- Test receive loop message parsing and routing
-- Test reference generation uniqueness and thread safety
-- Test concurrent access to Socket from multiple threads
-- Test connection timeout detection
+Comprehensive unit tests have been organized into dedicated test files covering all aspects of the Socket Component (Section 1.3).
+
+**Test Files Created:**
+- `tests/connection/state_machine_test.zig` - 41 tests for state machine logic
+- `tests/connection/socket_structure_test.zig` - 33 tests for socket initialization and structure
+- `tests/connection/reference_generation_test.zig` - 24 tests for reference counter functionality
+- `tests/connection/connection_lifecycle_test.zig` - 26 tests for connection and state callbacks
+- `tests/connection/message_sending_test.zig` - 21 tests for message sending validation and errors
+
+**Test Coverage:**
+- ✅ State machine transitions (valid and invalid) - 41 tests
+- ✅ Connection establishment and disconnection - 26 tests
+- ✅ Message sending in CONNECTED state - 21 tests
+- ✅ Message sending errors in non-CONNECTED states - 21 tests
+- ✅ Reference generation uniqueness and thread safety - 24 tests (including concurrent access tests)
+- ✅ Socket initialization and configuration - 33 tests
+- ✅ Concurrent access to Socket from multiple threads - Thread safety tests included
+- ⏳ Connection timeout detection - Deferred to integration tests (requires actual WebSocket connection)
+- ⏳ Receive loop message parsing and routing - Deferred to Task 1.3.5 implementation
+
+**Total: 145 organized unit tests** for Section 1.3 Socket Component
+
+**Implementation Details:**
+- Organized tests by component responsibility for maintainability
+- All tests use `testing.allocator` for automatic memory leak detection
+- Tests verify both success and error paths
+- Thread safety validated with concurrent access patterns
+- State machine behavior thoroughly tested with edge cases
+- All 145 tests passing successfully
+- Tests integrated into build system via `tests/unit_tests.zig`
 
 ---
 

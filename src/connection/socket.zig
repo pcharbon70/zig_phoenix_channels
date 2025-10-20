@@ -318,6 +318,22 @@ pub const PhoenixSocket = struct {
         return std.fmt.allocPrint(self.allocator, "{d}", .{ref});
     }
 
+    /// Add a state change callback
+    pub fn addStateCallback(self: *PhoenixSocket, callback: StateChangeCallback, context: ?*anyopaque) !void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.state_callback = callback;
+        self.callback_context = context;
+    }
+
+    /// Remove the state change callback
+    pub fn removeStateCallback(self: *PhoenixSocket) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        self.state_callback = null;
+        self.callback_context = null;
+    }
+
     /// Set state change callback
     pub fn setStateCallback(
         self: *PhoenixSocket,

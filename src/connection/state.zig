@@ -103,6 +103,21 @@ pub const ConnectionState = enum {
             return error.InvalidStateTransition;
         }
     }
+
+    /// Check if the connection is in CONNECTED state
+    pub fn isConnected(self: ConnectionState) bool {
+        return self == .CONNECTED;
+    }
+
+    /// Check if the connection can send messages
+    pub fn canSend(self: ConnectionState) bool {
+        return self == .CONNECTED;
+    }
+
+    /// Check if the connection is in a transitional state
+    pub fn isTransitional(self: ConnectionState) bool {
+        return self == .CONNECTING or self == .CLOSING;
+    }
 };
 
 test "valid state transitions" {
