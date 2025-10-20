@@ -109,3 +109,16 @@ test "WebSocketWrapper receive fails when not connected" {
 
 // Individual module tests are included when building the library.
 // The phoenix_channels import above brings in all module definitions and their tests.
+
+// ============================================================================
+// Section 1.3 Unit Tests (Socket Component)
+// ============================================================================
+
+// Import organized unit tests for Section 1.3
+test {
+    _ = @import("connection/state_machine_test.zig");
+    _ = @import("connection/socket_structure_test.zig");
+    _ = @import("connection/reference_generation_test.zig");
+    _ = @import("connection/connection_lifecycle_test.zig");
+    _ = @import("connection/message_sending_test.zig");
+}
