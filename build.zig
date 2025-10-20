@@ -134,6 +134,28 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the basic connection example");
     run_step.dependOn(&run_example.step);
 
+    // Message round-trip example
+    const roundtrip_example = b.addExecutable(.{
+        .name = "message_roundtrip",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/message_roundtrip.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    // Link roundtrip example against the library
+    roundtrip_example.root_module.addImport("phoenix_channels", lib.root_module);
+    roundtrip_example.root_module.addImport("websocket", websocket_mod);
+
+    // Install the roundtrip example
+    b.installArtifact(roundtrip_example);
+
+    // Run step for the roundtrip example
+    const run_roundtrip = b.addRunArtifact(roundtrip_example);
+    const roundtrip_step = b.step("run-roundtrip", "Run the message round-trip demo");
+    roundtrip_step.dependOn(&run_roundtrip.step);
+
     // ===================================================================
     // Documentation Generation (optional)
     // ===================================================================

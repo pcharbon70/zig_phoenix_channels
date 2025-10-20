@@ -18,45 +18,34 @@ const message = @import("message.zig");
 /// - event: string (required)
 /// - payload: JSON object (required)
 pub fn serialize(allocator: std.mem.Allocator, msg: *const message.PhoenixMessage) ![]u8 {
-    var buffer = std.ArrayList(u8).init(allocator);
-    errdefer buffer.deinit();
+    // Use Writer.Allocating to build JSON
+    var aw: std.io.Writer.Allocating = .init(allocator);
+    errdefer aw.deinit();
 
-    var writer = buffer.writer();
+    var stringify = std.json.Stringify{ .writer = &aw.writer };
 
     // Start array
-    try writer.writeByte('[');
+    try stringify.beginArray();
 
     // Field 1: join_ref (nullable)
-    if (msg.join_ref) |join_ref| {
-        try std.json.encodeJsonString(join_ref, .{}, writer);
-    } else {
-        try writer.writeAll("null");
-    }
-    try writer.writeByte(',');
+    try stringify.write(msg.join_ref);
 
     // Field 2: ref (nullable)
-    if (msg.ref) |ref| {
-        try std.json.encodeJsonString(ref, .{}, writer);
-    } else {
-        try writer.writeAll("null");
-    }
-    try writer.writeByte(',');
+    try stringify.write(msg.ref);
 
     // Field 3: topic (required)
-    try std.json.encodeJsonString(msg.topic, .{}, writer);
-    try writer.writeByte(',');
+    try stringify.write(msg.topic);
 
     // Field 4: event (required)
-    try std.json.encodeJsonString(msg.event, .{}, writer);
-    try writer.writeByte(',');
+    try stringify.write(msg.event);
 
     // Field 5: payload (JSON value)
-    try std.json.stringify(msg.payload, .{}, writer);
+    try stringify.write(msg.payload);
 
     // End array
-    try writer.writeByte(']');
+    try stringify.endArray();
 
-    return buffer.toOwnedSlice();
+    return aw.toOwnedSlice();
 }
 
 /// Deserialize a JSON array to PhoenixMessage
@@ -178,18 +167,20 @@ fn deepCopyValue(allocator: std.mem.Allocator, value: std.json.Value) !std.json.
 }
 
 /// Free a JSON value and all its contents
-fn freeValue(allocator: std.mem.Allocator, value: std.json.Value) void {
+fn freeValue(allocator: std.mem.Allocator, val: std.json.Value) void {
+    // Need to make a mutable copy to call deinit()
+    var value = val;
     switch (value) {
         .null, .bool, .integer, .float => {},
         .number_string => |ns| allocator.free(ns),
         .string => |s| allocator.free(s),
-        .array => |arr| {
+        .array => |*arr| {
             for (arr.items) |item| {
                 freeValue(allocator, item);
             }
             arr.deinit();
         },
-        .object => |obj| {
+        .object => |*obj| {
             var iter = obj.iterator();
             while (iter.next()) |entry| {
                 allocator.free(entry.key_ptr.*);
