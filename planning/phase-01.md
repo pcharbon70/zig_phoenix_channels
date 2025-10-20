@@ -375,15 +375,32 @@ The Socket struct contains all connection-related state: WebSocket client, conne
 - All tests compile successfully
 - Integration with StateChangeCallback from Task 1.3.1
 
-### 1.3.3 Connection Lifecycle
+### 1.3.3 Connection Lifecycle ✅ COMPLETED
 
 The connection lifecycle manages the actual WebSocket handshake and teardown. Connect establishes the WebSocket and transitions to CONNECTED. Disconnect gracefully closes the connection. Both operations must handle threading correctly and ensure clean state transitions.
 
-- 1.3.3.1 Implement connect() method with WebSocket handshake
-- 1.3.3.2 Implement disconnect() for graceful connection closure
-- 1.3.3.3 Handle connection errors and state transitions
-- 1.3.3.4 Add connection timeout detection
-- 1.3.3.5 Implement connection parameter handling (URL, query params, headers)
+- ✅ 1.3.3.1 Implement connect() method with WebSocket handshake
+- ✅ 1.3.3.2 Implement disconnect() for graceful connection closure
+- ✅ 1.3.3.3 Handle connection errors and state transitions
+- ✅ 1.3.3.4 Add connection timeout detection
+- ✅ 1.3.3.5 Implement connection parameter handling (URL, query params, headers)
+
+**Implementation Details:**
+- Enhanced `src/connection/socket.zig` (+180 lines, 665 total)
+- Added `connect()` method with WebSocket handshake and state transitions
+- Added `disconnect()` method with graceful connection closure
+- Implemented `parseWebSocketUrl()` helper for URL parsing
+- Updated `deinit()` to clean up WebSocket connection
+- State transitions: DISCONNECTED → CONNECTING → CONNECTED (success) or ERROR (failure)
+- Disconnect transitions: CONNECTED → CLOSING → DISCONNECTED
+- Connection timeout via config.timeout_ms (passed to WebSocket handshake)
+- Error handling with errdefer for proper cleanup on failure
+- Thread-safe operations with mutex protection
+- 10 new tests for URL parsing and connection lifecycle
+- Total: 21 comprehensive tests, all passing
+- Branch: `feature/connection-lifecycle`
+- Commit: pending
+- Summary: `notes/summaries/connection-lifecycle.md`
 
 ### 1.3.4 Message Sending
 
