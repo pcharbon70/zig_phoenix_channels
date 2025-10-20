@@ -19,10 +19,13 @@ const std = @import("std");
 const websocket = @import("websocket");
 const State = @import("state.zig");
 const types = @import("../common/types.zig");
+const message = @import("../protocol/message.zig");
+const serializer = @import("../protocol/serializer.zig");
 
 const ConnectionState = State.ConnectionState;
 const StateChangeCallback = State.StateChangeCallback;
 const RefCounter = types.RefCounter;
+const PhoenixMessage = message.PhoenixMessage;
 
 /// Phoenix Socket configuration
 pub const Config = struct {
@@ -225,6 +228,54 @@ pub const PhoenixSocket = struct {
 
         // Transition to DISCONNECTED
         try self.setState(.DISCONNECTED);
+    }
+
+    /// Send a Phoenix message over the WebSocket connection
+    /// Returns error if not connected or if send fails
+    /// Thread-safe: can be called from multiple threads
+    ///
+    /// Phase 1: Returns error.NotConnected if state != CONNECTED (no queuing)
+    /// The message buffer is modified by the WebSocket library for masking
+    pub fn send(self: *PhoenixSocket, msg: *const PhoenixMessage) !void {
+        // Step 1: Check connection state (thread-safe)
+        {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.state != .CONNECTED) {
+                return error.NotConnected;
+            }
+        }
+
+        // Step 2: Get WebSocket client (thread-safe, re-check in case of race)
+        const client = blk: {
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            if (self.ws_client) |c| {
+                break :blk c;
+            } else {
+                return error.NotConnected;
+            }
+        };
+
+        // Step 3: Validate message
+        try msg.validateForSend();
+
+        // Step 4: Serialize message to JSON
+        const json_bytes = try serializer.serialize(self.allocator, msg);
+        defer self.allocator.free(json_bytes);
+
+        // Step 5: Send via WebSocket (requires mutable buffer)
+        // Note: websocket.zig modifies the buffer for masking, so we need a mutable copy
+        const send_buffer = try self.allocator.dupe(u8, json_bytes);
+        defer self.allocator.free(send_buffer);
+
+        // Step 6: Send with timeout (using existing timeout configuration)
+        try client.writeTimeout(self.config.timeout_ms);
+        defer client.writeTimeout(0) catch {};
+
+        try client.writeText(send_buffer);
     }
 
     /// Get current connection state (thread-safe)
@@ -662,4 +713,150 @@ test "disconnect: valid state when ERROR" {
     // Should be able to disconnect from ERROR state
     try socket.disconnect();
     try std.testing.expectEqual(ConnectionState.DISCONNECTED, socket.getState());
+}
+
+// ============================================================================
+// Message Sending Tests
+// ============================================================================
+
+test "send: returns error when DISCONNECTED" {
+    const allocator = std.testing.allocator;
+
+    const config = Config{
+        .url = "ws://localhost:4000/socket/websocket",
+    };
+
+    const socket = try PhoenixSocket.init(allocator, config);
+    defer socket.deinit();
+
+    // Create a test message
+    const test_msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = "test_event",
+        .payload = .{ .object = std.json.ObjectMap.init(allocator) },
+    };
+    defer if (test_msg.payload == .object) test_msg.payload.object.deinit();
+
+    // Try to send while DISCONNECTED
+    const result = socket.send(&test_msg);
+    try std.testing.expectError(error.NotConnected, result);
+}
+
+test "send: returns error when CONNECTING" {
+    const allocator = std.testing.allocator;
+
+    const config = Config{
+        .url = "ws://localhost:4000/socket/websocket",
+    };
+
+    const socket = try PhoenixSocket.init(allocator, config);
+    defer socket.deinit();
+
+    // Transition to CONNECTING
+    try socket.setState(.CONNECTING);
+
+    // Create a test message
+    const test_msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = "test_event",
+        .payload = .{ .object = std.json.ObjectMap.init(allocator) },
+    };
+    defer if (test_msg.payload == .object) test_msg.payload.object.deinit();
+
+    // Try to send while CONNECTING
+    const result = socket.send(&test_msg);
+    try std.testing.expectError(error.NotConnected, result);
+}
+
+test "send: returns error when CLOSING" {
+    const allocator = std.testing.allocator;
+
+    const config = Config{
+        .url = "ws://localhost:4000/socket/websocket",
+    };
+
+    const socket = try PhoenixSocket.init(allocator, config);
+    defer socket.deinit();
+
+    // Transition to CONNECTED then CLOSING
+    try socket.setState(.CONNECTING);
+    try socket.setState(.CONNECTED);
+    try socket.setState(.CLOSING);
+
+    // Create a test message
+    const test_msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = "test_event",
+        .payload = .{ .object = std.json.ObjectMap.init(allocator) },
+    };
+    defer if (test_msg.payload == .object) test_msg.payload.object.deinit();
+
+    // Try to send while CLOSING
+    const result = socket.send(&test_msg);
+    try std.testing.expectError(error.NotConnected, result);
+}
+
+test "send: returns error when ERROR" {
+    const allocator = std.testing.allocator;
+
+    const config = Config{
+        .url = "ws://localhost:4000/socket/websocket",
+    };
+
+    const socket = try PhoenixSocket.init(allocator, config);
+    defer socket.deinit();
+
+    // Transition to ERROR
+    try socket.setState(.CONNECTING);
+    try socket.setState(.ERROR);
+
+    // Create a test message
+    const test_msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = "test_event",
+        .payload = .{ .object = std.json.ObjectMap.init(allocator) },
+    };
+    defer if (test_msg.payload == .object) test_msg.payload.object.deinit();
+
+    // Try to send while ERROR
+    const result = socket.send(&test_msg);
+    try std.testing.expectError(error.NotConnected, result);
+}
+
+test "send: returns error when ws_client is null despite CONNECTED state" {
+    const allocator = std.testing.allocator;
+
+    const config = Config{
+        .url = "ws://localhost:4000/socket/websocket",
+    };
+
+    const socket = try PhoenixSocket.init(allocator, config);
+    defer socket.deinit();
+
+    // Manually set state to CONNECTED without actually connecting
+    // (This simulates a race condition)
+    try socket.setState(.CONNECTING);
+    try socket.setState(.CONNECTED);
+
+    // Create a test message
+    const test_msg = PhoenixMessage{
+        .join_ref = null,
+        .ref = "1",
+        .topic = "room:lobby",
+        .event = "test_event",
+        .payload = .{ .object = std.json.ObjectMap.init(allocator) },
+    };
+    defer if (test_msg.payload == .object) test_msg.payload.object.deinit();
+
+    // Try to send - should fail because ws_client is null
+    const result = socket.send(&test_msg);
+    try std.testing.expectError(error.NotConnected, result);
 }
