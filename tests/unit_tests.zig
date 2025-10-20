@@ -122,3 +122,17 @@ test {
     _ = @import("connection/connection_lifecycle_test.zig");
     _ = @import("connection/message_sending_test.zig");
 }
+
+// ============================================================================
+// Section 1.4 Unit Tests (Channel Component)
+// ============================================================================
+
+// Import organized unit tests for Section 1.4
+test {
+    _ = @import("channel/channel_state_machine_test.zig");
+    _ = @import("channel/channel_structure_test.zig");
+    _ = @import("channel/channel_join_test.zig");
+    _ = @import("channel/channel_leave_test.zig");
+    _ = @import("channel/channel_push_test.zig");
+    _ = @import("channel/channel_callbacks_test.zig");
+}
