@@ -327,15 +327,53 @@ The state machine must be explicitly defined with all states and valid transitio
   - Error message generation
 - All 21 tests passing
 
-### 1.3.2 Socket Structure
+### 1.3.2 Socket Structure ✅ COMPLETED
 
 The Socket struct contains all connection-related state: WebSocket client, connection state, channel registry (added Phase 3), ref counter, and synchronization primitives. The structure must be carefully designed to support thread-safe operation with minimal locking.
 
-- 1.3.2.1 Define PhoenixSocket struct with core fields
-- 1.3.2.2 Add connection state and WebSocket client fields
-- 1.3.2.3 Include reference counter for unique message IDs
-- 1.3.2.4 Add mutex for thread-safe state access
-- 1.3.2.5 Include allocator field for memory management
+- ✅ 1.3.2.1 Define PhoenixSocket struct with core fields
+- ✅ 1.3.2.2 Add connection state and WebSocket client fields
+- ✅ 1.3.2.3 Include reference counter for unique message IDs
+- ✅ 1.3.2.4 Add mutex for thread-safe state access
+- ✅ 1.3.2.5 Include allocator field for memory management
+
+**Implementation Details:**
+- Enhanced `src/connection/socket.zig` (+250 lines, 425 total)
+- **PhoenixSocket Struct Fields**:
+  - `allocator` - Memory allocator for dynamic allocations
+  - `config` - Socket configuration (URL, timeouts, heartbeat interval)
+  - `state` - Current ConnectionState (protected by mutex)
+  - `ws_client` - Optional WebSocket client pointer (null when disconnected)
+  - `ref_counter` - RefCounter for generating unique message IDs
+  - `mutex` - std.Thread.Mutex for thread-safe state access
+  - `state_callback` - Optional StateChangeCallback for monitoring
+  - `callback_context` - Optional user context for callbacks
+- **Public Methods**:
+  - `init()` - Initialize socket with config
+  - `deinit()` - Cleanup resources (with mutex protection)
+  - `getState()` - Thread-safe state getter
+  - `setState()` - Validate transition and invoke callback
+  - `nextRef()` - Generate next unique message ID as number
+  - `nextRefString()` - Generate next unique message ID as string
+  - `setStateCallback()` - Register state change callback
+  - `connect()` - Placeholder for Task 1.3.3
+  - `disconnect()` - Placeholder for Task 1.3.3
+- **Thread Safety Features**:
+  - Mutex protects all state access
+  - RefCounter has internal mutex for ID generation
+  - Callback invoked outside mutex to prevent deadlock
+  - All public methods are thread-safe
+- **Test Coverage**: 11 comprehensive tests
+  - Socket initialization and configuration
+  - Reference counter (numeric and string IDs)
+  - State transition validation
+  - Callback invocation (with/without context)
+  - Callback management (set/remove)
+  - Thread-safe state access
+  - Complete state transition sequences
+  - Error state handling
+- All tests compile successfully
+- Integration with StateChangeCallback from Task 1.3.1
 
 ### 1.3.3 Connection Lifecycle
 
